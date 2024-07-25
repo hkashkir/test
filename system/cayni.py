@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import hashlib
+import io
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -151,37 +152,37 @@ st.markdown("""
             color: white;
         }
         .sidebar .sidebar-content a {
-            color: white;
+            color: white.
         }
         .main .block-container {
-            padding: 2rem;
+            padding: 2rem.
         }
         h1, h2, h3, h4, h5, h6 {
-            color: #0d6efd;
+            color: #0d6efd.
         }
         .css-18e3th9 {
-            padding-top: 2rem;
+            padding-top: 2rem.
         }
         .large-font {
-            font-size: 40px !important;
+            font-size: 40px !important.
         }
         .larger-font {
-            font-size: 20px !important;
+            font-size: 20px !important.
         }
         .blue-text {
-            color: blue;
+            color: blue.
         }
         .orange-text {
-            color: orange;
+            color: orange.
         }
         .red-text {
-            color: red;
+            color: red.
         }
         .green-text {
-            color: green;
+            color: green.
         }
         .larger-table .stDataFrame {
-            font-size: 1.5rem !important;
+            font-size: 1.5rem !important.
         }
     </style>
     """, unsafe_allow_html=True)
@@ -217,10 +218,7 @@ def login_page():
             else:
                 st.session_state.username = username
                 st.session_state.privilege = privilege
-                st.experimental_set_query_params(username=username)
                 st.success('Logged in successfully.')
-                chat_history = load_chat_history(username)
-                st.session_state.chat_history = chat_history
                 st.experimental_rerun()
         else:
             st.error('Incorrect Username/Password')
@@ -252,7 +250,6 @@ def registration_page():
 def logout():
     del st.session_state['username']
     del st.session_state['privilege']
-    st.experimental_set_query_params(username=None)
     st.success("You've been logged out")
     st.experimental_rerun()
 
@@ -373,6 +370,10 @@ def home_page():
         })
         
         return response['answer']
+
+    # app config
+    #st.set_page_config(page_title="Chat with websites", page_icon="🤖")
+    #st.title("Chat with websites")
 
     # sidebar
     with st.sidebar:
