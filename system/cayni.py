@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import hashlib
 import io
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_community.document_loaders import WebBaseLoader
@@ -15,20 +17,34 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 
 load_dotenv()
 
-# Initialize the dictionary to store chat histories by URL
-chat_histories = {}
+# Initialize Firebase
+if not firebase_admin._apps:
+    cred = credentials.Certificate({
+        "type": st.secrets["firebase"]["type"],
+        "project_id": st.secrets["firebase"]["project_id"],
+        "private_key_id": st.secrets["firebase"]["private_key_id"],
+        "private_key": st.secrets["firebase"]["private_key"].replace("\\n", "\n"),
+        "client_email": st.secrets["firebase"]["client_email"],
+        "client_id": st.secrets["firebase"]["client_id"],
+        "auth_uri": st.secrets["firebase"]["auth_uri"],
+        "token_uri": st.secrets["firebase"]["token_uri"],
+        "auth_provider_x509_cert_url": st.secrets["firebase"]["auth_provider_x509_cert_url"],
+        "client_x509_cert_url": st.secrets["firebase"]["client_x509_cert_url"],
+    })
+    firebase_admin.initialize_app(cred)
+
+db = firestore.client()
 
 # Function to hash passwords
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-# Function to get user data from secrets
+# Function to get user data from Firestore
 def get_user_data():
-    csv_data = st.secrets["users_csv"]
-    user_data = pd.read_csv(io.StringIO(csv_data), index_col='username')
-    if 'privilege' not in user_data.columns:
-        user_data['privilege'] = 'user'  # Default to 'user' if 'privilege' column is missing
-    return user_data
+    users_ref = db.collection('users')
+    docs = users_ref.stream()
+    user_data = {doc.id: doc.to_dict() for doc in docs}
+    return pd.DataFrame.from_dict(user_data, orient='index')
 
 # Function to verify credentials and get user status and privilege
 def check_credentials(username, password):
@@ -45,8 +61,11 @@ def self_register_user(username, password):
     if username in user_data.index:
         return False  # Username already exists
     else:
-        user_data.loc[username] = [hash_password(password), 'pending', 'user']
-        user_data.to_csv('users.csv')
+        db.collection('users').document(username).set({
+            'password': hash_password(password),
+            'status': 'pending',
+            'privilege': 'user'
+        })
         return True
 
 # Function to register new user by admin
@@ -55,64 +74,53 @@ def register_user_from_admin(username, password, privilege='user'):
     if username in user_data.index:
         return False  # Username already exists
     else:
-        user_data.loc[username] = [hash_password(password), 'pending', privilege]
-        user_data.to_csv('users.csv')
+        db.collection('users').document(username).set({
+            'password': hash_password(password),
+            'status': 'approved',
+            'privilege': privilege
+        })
         return True
 
 # Function to delete a user
 def delete_user(username):
     user_data = get_user_data()
     if username in user_data.index:
-        user_data = user_data.drop(username)
-        user_data.to_csv('users.csv')
+        db.collection('users').document(username).delete()
         return True
     return False
 
 # Function to load chat history for a session (URL)
 def load_chat_history(username):
-    try:
-        chat_data = pd.read_csv('chat_history.csv', index_col='username')
-        if username in chat_data.index:
-            return eval(chat_data.loc[username, 'chat_history'])
-        else:
-            return {}
-    except FileNotFoundError:
-        return {}
-    except pd.errors.ParserError:
-        st.error("Error parsing the chat_history.csv file. Please ensure it is correctly formatted.")
+    doc_ref = db.collection('chat_histories').document(username)
+    doc = doc_ref.get()
+    if doc.exists:
+        return doc.to_dict()
+    else:
         return {}
 
 # Function to save chat history for a session (URL)
 def save_chat_history(username, url, chat_history):
-    try:
-        chat_data = pd.read_csv('chat_history.csv', index_col='username')
-    except FileNotFoundError:
-        chat_data = pd.DataFrame(columns=['username', 'chat_history'])
-        chat_data.set_index('username', inplace=True)
-
-    if username in chat_data.index:
-        user_chats = eval(chat_data.loc[username, 'chat_history'])
+    doc_ref = db.collection('chat_histories').document(username)
+    doc = doc_ref.get()
+    if doc.exists:
+        user_chats = doc.to_dict()
     else:
         user_chats = {}
 
     user_chats[url] = chat_history
-    chat_data.loc[username, 'chat_history'] = str(user_chats)
-    chat_data.to_csv('chat_history.csv')
+    doc_ref.set(user_chats)
 
 # Function to delete chat history for a session (URL)
 def delete_chat_history(username, url):
-    try:
-        chat_data = pd.read_csv('chat_history.csv', index_col='username')
-        if username in chat_data.index:
-            user_chats = eval(chat_data.loc[username, 'chat_history'])
-            if url in user_chats:
-                del user_chats[url]
-                chat_data.loc[username, 'chat_history'] = str(user_chats)
-                chat_data.to_csv('chat_history.csv')
-                return True
-        return False
-    except FileNotFoundError:
-        return False
+    doc_ref = db.collection('chat_histories').document(username)
+    doc = doc_ref.get()
+    if doc.exists:
+        user_chats = doc.to_dict()
+        if url in user_chats:
+            del user_chats[url]
+            doc_ref.set(user_chats)
+            return True
+    return False
 
 # Set page config at the beginning
 st.set_page_config(page_title="Dashboard", page_icon="🧠", layout="wide")
@@ -148,13 +156,13 @@ st.markdown("""
             color: blue;
         }
         .orange-text {
-            color: orange;
+            color: orange.
         }
         .red-text {
-            color: red;
+            color: red.
         }
         .green-text {
-            color: green;
+            color: green.
         }
         .larger-table .stDataFrame {
             font-size: 1.5rem !important;
@@ -435,8 +443,7 @@ def user_management_page():
             new_status = st.selectbox("Select new status", ["approved", "declined", "blocked"], key="user_management_status_select")
 
             if st.button("Update Status"):
-                user_data.loc[user_to_update, 'status'] = new_status
-                user_data.to_csv('users.csv')
+                db.collection('users').document(user_to_update).update({'status': new_status})
                 st.success(f"Updated {user_to_update}'s status to {new_status}")
 
             if st.button("Delete User"):
@@ -502,8 +509,7 @@ def manage_roles_page():
             new_privilege = st.selectbox("Select new privilege", ["admin", "user"], key="manage_roles_privilege_select")
 
             if st.button("Update Privilege"):
-                user_data.loc[user_to_update, 'privilege'] = new_privilege
-                user_data.to_csv('users.csv')
+                db.collection('users').document(user_to_update).update({'privilege': new_privilege})
                 st.success(f"Updated {user_to_update}'s privilege to {new_privilege}")
 
         with col2:
