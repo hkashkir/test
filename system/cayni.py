@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import hashlib
-import io
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -89,12 +88,29 @@ def delete_user(username):
         return True
     return False
 
+# Serialization functions
+def serialize_message(message):
+    if isinstance(message, AIMessage):
+        return {'type': 'ai', 'content': message.content}
+    elif isinstance(message, HumanMessage):
+        return {'type': 'human', 'content': message.content}
+    return None
+
+def deserialize_message(data):
+    if data['type'] == 'ai':
+        return AIMessage(content=data['content'])
+    elif data['type'] == 'human':
+        return HumanMessage(content=data['content'])
+    return None
+
 # Function to load chat history for a session (URL)
 def load_chat_history(username):
     doc_ref = db.collection('chat_histories').document(username)
     doc = doc_ref.get()
     if doc.exists:
-        return doc.to_dict()
+        data = doc.to_dict()
+        chat_history = {url: [deserialize_message(msg) for msg in msgs] for url, msgs in data.items()}
+        return chat_history
     else:
         return {}
 
@@ -107,7 +123,7 @@ def save_chat_history(username, url, chat_history):
     else:
         user_chats = {}
 
-    user_chats[url] = chat_history
+    user_chats[url] = [serialize_message(msg) for msg in chat_history]
     doc_ref.set(user_chats)
 
 # Function to delete chat history for a session (URL)
@@ -156,13 +172,13 @@ st.markdown("""
             color: blue;
         }
         .orange-text {
-            color: orange.
+            color: orange;
         }
         .red-text {
-            color: red.
+            color: red;
         }
         .green-text {
-            color: green.
+            color: green;
         }
         .larger-table .stDataFrame {
             font-size: 1.5rem !important;
@@ -201,7 +217,10 @@ def login_page():
             else:
                 st.session_state.username = username
                 st.session_state.privilege = privilege
+                st.experimental_set_query_params(username=username)
                 st.success('Logged in successfully.')
+                chat_history = load_chat_history(username)
+                st.session_state.chat_history = chat_history
                 st.experimental_rerun()
         else:
             st.error('Incorrect Username/Password')
@@ -233,6 +252,7 @@ def registration_page():
 def logout():
     del st.session_state['username']
     del st.session_state['privilege']
+    st.experimental_set_query_params(username=None)
     st.success("You've been logged out")
     st.experimental_rerun()
 
@@ -353,10 +373,6 @@ def home_page():
         })
         
         return response['answer']
-
-    # app config
-    #st.set_page_config(page_title="Chat with websites", page_icon="🤖")
-    #st.title("Chat with websites")
 
     # sidebar
     with st.sidebar:
