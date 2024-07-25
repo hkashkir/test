@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import hashlib
+import io
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_community.document_loaders import WebBaseLoader
@@ -21,18 +22,13 @@ chat_histories = {}
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-# Function to get user data
+# Function to get user data from secrets
 def get_user_data():
-    try:
-        user_data = pd.read_csv('users.csv', index_col='username')
-        if 'privilege' not in user_data.columns:
-            user_data['privilege'] = 'user'  # Default to 'user' if 'privilege' column is missing
-        return user_data
-    except FileNotFoundError:
-        return pd.DataFrame(columns=['username', 'password', 'status', 'privilege']).set_index('username')
-    except pd.errors.ParserError:
-        st.error("Error parsing the users.csv file. Please ensure it is correctly formatted.")
-        return pd.DataFrame(columns=['username', 'password', 'status', 'privilege']).set_index('username')
+    csv_data = st.secrets["users_csv"]
+    user_data = pd.read_csv(io.StringIO(csv_data), index_col='username')
+    if 'privilege' not in user_data.columns:
+        user_data['privilege'] = 'user'  # Default to 'user' if 'privilege' column is missing
+    return user_data
 
 # Function to verify credentials and get user status and privilege
 def check_credentials(username, password):
