@@ -8,4 +8,4 @@ chromadb==0.3.29
 beautifulsoup4==4.12.2
 pandas==1.5.3
 firebase-admin
-;
+
